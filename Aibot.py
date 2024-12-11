@@ -20,6 +20,9 @@ COMMANDS = {
 }
 def start(update: Update, context: CallbackContext) -> None:
     update.message.reply_text('مرحبًا! أنا بوت لإدارة مستودعات GitHub و Codespaces. يمكنك إعطائي أوامر لأقوم بتنفيذها.\n\nمثال: "أنشئ مستودعًا باسم [اسم المستودع]"')
+def get_filters():
+    """دالة لإرجاع الفلاتر المناسبة"""
+    return Filters.text & ~Filters.command
 def handle_message(update: Update, context: CallbackContext) -> None:
     user_message = update.message.text.lower()
     
@@ -62,18 +65,18 @@ def delete_repository(update: Update, repo_name: str) -> None:
         update.message.reply_text(f'فشل في حذف المستودع: {response.json().get("message")}')
 def get_file_request(message: str):
     parts = message.split("أنشئ ملف")
-    filename = parts[1].split("في المستودع")[-1].strip().split(" ")[0]  # الحصول على اسم الملف
-    repo_name = parts[1].split("في المستودع")[-1].split(" ")[-1]  # الحصول على اسم المستودع
+    filename = parts[1].split("في المستودع")[-1].strip().split(" ")[0]
+    repo_name = parts[1].split("في المستودع")[-1].split(" ")[-1]
     return filename, repo_name
 def create_file(update: Update, file_request: tuple) -> None:
     filename, repo_name = file_request
     headers = {'Authorization': f'token {GITHUB_TOKEN}'}
-    content = "print('Hello, World!')"  # محتويات الملف (يمكن تعديلها حسب الحاجة)
-    encoded_content = base64.b64encode(content.encode('utf-8')).decode('utf-8')  # تشفير المحتوى
+    content = "print('Hello, World!')"
+    encoded_content = base64.b64encode(content.encode('utf-8')).decode('utf-8')
     data = {
         "message": f"إضافة الملف {filename}",
         "content": encoded_content,
-        "branch": "main"  # تأكد من استخدام فرع صحيح
+        "branch": "main"
     }
     response = requests.put(f"{GITHUB_API_URL}/repos/{GITHUB_USERNAME}/{repo_name}/contents/{filename}", headers=headers, json=data)
     if response.status_code in [201, 200]:
@@ -89,7 +92,7 @@ def create_codespace(update: Update, codespace_name: str) -> None:
     data = {
         "repository_id": "REPOSITORY_ID",  # حدد ID المستودع المناسب
         "ref": "main",
-        "devcontainer": {},  # يمكنك تحديد إعدادات devcontainer هنا
+        "devcontainer": {},
         "name": codespace_name
     }
     response = requests.post(f'{GITHUB_API_URL}/user/codespaces', headers=headers, json=data)
@@ -126,12 +129,13 @@ def handle_docs(update: Update, context: CallbackContext) -> None:
     
     update.message.reply_text(f'تم تحميل الملف {document.file_name} بنجاح! يمكنك إدخال اسم الملف كجزء من الأمر لإنشاءه في مستودع GitHub.')
 def main():
-    updater = Updater(TELEGRAM_BOT_TOKEN)
+    updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
     
     dp = updater.dispatcher
     dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    dp.add_handler(MessageHandler(get_filters(), handle_message))
     dp.add_handler(MessageHandler(Filters.document.mime_type("application/octet-stream"), handle_docs))
+    
     updater.start_polling()
     updater.idle()
 if _name_ == '_main_':
