@@ -39,10 +39,20 @@ def send_to_model(query: str, model: str) -> str:
     elif model == "ClaudeAI":
         # استبدل بالاتصال المناسب لـ ClaudeAI
         response = requests.post(
-            "https://api.levity.ai/claude",
-            headers={"Authorization": f"Bearer {CLAUDE_API_KEY}"},
-            json={"query": query}
-        )
+    "https://api.anthropic.com/v1/messages",  # الرابط الصحيح لـ ClaudeAI
+    headers={
+        "x-api-key": CLAUDE_API_KEY,          # مفتاح API
+        "Content-Type": "application/json"    # نوع المحتوى
+    },
+    json={
+        "model": "claude-2",                  # تحديد النموذج المطلوب
+        "messages": [{"role": "user", "content": query}],  # الرسالة المُرسلة
+        "max_tokens": 300                     # تحديد عدد الكلمات الناتجة
+    }
+)
+response_json = response.json()
+print(response_json)  # لطباعة الاستجابة للتأكد
+return response_json.get("content", "استجابة غير متوقعة من ClaudeAI")
         return response.json()['response']
     elif model == "Gemini":
         # استبدل بالاتصال المناسب لـ Gemini
