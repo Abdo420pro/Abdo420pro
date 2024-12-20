@@ -4,6 +4,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 from github import Github
 from dotenv import load_dotenv
+import requests
 
 # تحميل متغيرات البيئة
 load_dotenv()
@@ -101,23 +102,30 @@ def open_codespace(update: Update, context: CallbackContext):
 def open_github_dev(update: Update, context: CallbackContext):
     try:
         repo_name = context.args[0]
-        repo_url = f"https://github.dev/{github.get_user().login}/{repo_name}"
-        update.message.reply_text(f"فتح GitHub.dev للمستودع {repo_name}: {repo_url}")
+        user = "your-username"  # ضع اسم المستخدم هنا
+        repo_url = f"https://github.dev/{user}/{repo_name}"
+        response = requests.get(repo_url)
+        if response.status_code == 200:
+            update.message.reply_text(f"تم فتح المستودع {repo_name}: {repo_url}")
+        else:
+            update.message.reply_text(f"خطأ في الوصول إلى المستودع {repo_name}")
     except Exception as e:
         update.message.reply_text(f"حدث خطأ: {e}")
 
 # تشغيل البوت
-updater = Updater(TELEGRAM_TOKEN)
+if __name__ == "__main__":
+    updater = Updater(TELEGRAM_TOKEN, use_context=True)
+    dispatcher = updater.dispatcher
 
-updater.dispatcher.add_handler(CommandHandler("start", start))
-updater.dispatcher.add_handler(CommandHandler("help", help_command))
-updater.dispatcher.add_handler(CommandHandler("add_file", add_file))
-updater.dispatcher.add_handler(CommandHandler("edit_file", edit_file))
-updater.dispatcher.add_handler(CommandHandler("list_files", list_files))
-updater.dispatcher.add_handler(CommandHandler("view_env_files", view_env_files))
-updater.dispatcher.add_handler(CommandHandler("edit_env_file", edit_env_file))
-updater.dispatcher.add_handler(CommandHandler("open_codespace", open_codespace))
-updater.dispatcher.add_handler(CommandHandler("open_github_dev", open_github_dev))
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("help", help_command))
+    dispatcher.add_handler(CommandHandler("add_file", add_file))
+    dispatcher.add_handler(CommandHandler("edit_file", edit_file))
+    dispatcher.add_handler(CommandHandler("list_files", list_files))
+    dispatcher.add_handler(CommandHandler("view_env_files", view_env_files))
+    dispatcher.add_handler(CommandHandler("edit_env_file", edit_env_file))
+    dispatcher.add_handler(CommandHandler("open_codespace", open_codespace))
+    dispatcher.add_handler(CommandHandler("open_github_dev", open_github_dev))
 
-updater.start_polling()
-updater.idle()
+    updater.start_polling()
+    updater.idle()
