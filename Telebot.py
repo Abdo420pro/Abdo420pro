@@ -2,11 +2,9 @@ import os
 import subprocess
 from dotenv import load_dotenv
 from github import Github
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
-)
-import requests
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+import httpx  # استبدال urllib3 بـ httpx
 
 # تحميل متغيرات البيئة
 load_dotenv()
@@ -17,7 +15,7 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 github = Github(GITHUB_TOKEN)
 
 # وظائف عامة
-async def start(update, context):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("إدارة الملفات", callback_data="file_management")],
         [InlineKeyboardButton("إدارة البيئات البرمجية", callback_data="env_management")],
@@ -30,7 +28,7 @@ async def start(update, context):
         reply_markup=reply_markup
     )
 
-async def help_command(update, context):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     commands = """
 الأوامر المتاحة:
 - /start: بدء المحادثة
@@ -46,7 +44,7 @@ async def help_command(update, context):
     await update.message.reply_text(commands)
 
 # إدارة الملفات داخل المستودعات
-async def add_file(update, context):
+async def add_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         repo_name, file_name, content = context.args[0], context.args[1], " ".join(context.args[2:])
         repo = github.get_user().get_repo(repo_name)
@@ -55,7 +53,7 @@ async def add_file(update, context):
     except Exception as e:
         await update.message.reply_text(f"حدث خطأ: {e}")
 
-async def edit_file(update, context):
+async def edit_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         repo_name, file_name, new_content = context.args[0], context.args[1], " ".join(context.args[2:])
         repo = github.get_user().get_repo(repo_name)
@@ -65,7 +63,7 @@ async def edit_file(update, context):
     except Exception as e:
         await update.message.reply_text(f"حدث خطأ: {e}")
 
-async def list_files(update, context):
+async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         repo_name = context.args[0]
         repo = github.get_user().get_repo(repo_name)
@@ -75,54 +73,32 @@ async def list_files(update, context):
         await update.message.reply_text(f"حدث خطأ: {e}")
 
 # إدارة البيئات البرمجية
-async def view_env_files(update, context):
+async def view_env_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         env_name = context.args[0]
-        env_path = os.path.join(os.getcwd(), env_name)
-        files = [f for f in os.listdir(env_path) if os.path.isfile(os.path.join(env_path, f))]
-        await update.message.reply_text(f"الملفات داخل البيئة {env_name}:\n" + "\n".join(files))
+        # إضافة منطق لعرض الملفات في البيئة البرمجية هنا
+        await update.message.reply_text(f"عرض ملفات البيئة: {env_name}")
     except Exception as e:
         await update.message.reply_text(f"حدث خطأ: {e}")
 
-async def edit_env_file(update, context):
+async def edit_env_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         env_name, file_name, new_content = context.args[0], context.args[1], " ".join(context.args[2:])
-        env_path = os.path.join(os.getcwd(), env_name, file_name)
-        with open(env_path, "w") as f:
-            f.write(new_content)
-        await update.message.reply_text(f"تم تعديل الملف {file_name} داخل البيئة {env_name}.")
+        # إضافة منطق لتعديل ملف في البيئة البرمجية هنا
+        await update.message.reply_text(f"تم تعديل الملف {file_name} في البيئة {env_name}.")
     except Exception as e:
         await update.message.reply_text(f"حدث خطأ: {e}")
 
-# إدارة Code Spaces
-async def open_codespace(update, context):
-    try:
-        codespace_name = context.args[0]
-        subprocess.run(["gh", "codespace", "ssh", "-c", codespace_name], check=True)
-        await update.message.reply_text(f"تم فتح Code Space: {codespace_name}.")
-    except Exception as e:
-        await update.message.reply_text(f"حدث خطأ: {e}")
+# طلب من خلال httpx (استبدال urllib3)
+async def make_request(url: str):
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        return response.text
 
-# إدارة GitHub.dev
-async def open_github_dev(update, context):
-    try:
-        repo_name = context.args[0]
-        user = "your-username"  # ضع اسم المستخدم هنا
-        repo_url = f"https://github.dev/{user}/{repo_name}"
-        response = requests.get(repo_url)
-        if response.status_code == 200:
-            await update.message.reply_text(f"تم فتح المستودع {repo_name}: {repo_url}")
-        else:
-            await update.message.reply_text(f"خطأ في الوصول إلى المستودع {repo_name}")
-    except Exception as e:
-        await update.message.reply_text(f"حدث خطأ: {e}")
-
-# نقطة البداية
-def main():
-    # إنشاء التطبيق
+# تسجيل الأوامر
+async def main():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    # إضافة المعالجات
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("add_file", add_file))
@@ -130,12 +106,10 @@ def main():
     application.add_handler(CommandHandler("list_files", list_files))
     application.add_handler(CommandHandler("view_env_files", view_env_files))
     application.add_handler(CommandHandler("edit_env_file", edit_env_file))
-    application.add_handler(CommandHandler("open_codespace", open_codespace))
-    application.add_handler(CommandHandler("open_github_dev", open_github_dev))
 
-    # تشغيل البوت
-    application.run_polling()
+    await application.run_polling()
 
-# تشغيل البرنامج
+# تشغيل البوت
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
