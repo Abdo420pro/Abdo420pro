@@ -1,81 +1,144 @@
-import os
 import openai
-from flask import Flask, request, jsonify
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-from dotenv import load_dotenv
-
-# تحميل المفاتيح من .env
-load_dotenv()
+from notion_client import Client
+import sqlite3
+import json
+from datetime import datetime
+import telebot
 
 # إعداد مفاتيح API
-openai.api_key = os.getenv("OPENAI_API_KEY")
-ALPHA_AI_KEY = os.getenv("ALPHA_AI_KEY")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+openai.api_key = "your_openai_api_key"
+notion = Client(auth="your_notion_api_key")
+bot = telebot.TeleBot("your_telegram_bot_token")
 
-# إعداد Flask
-app = Flask(__name__)
-
-# دالة لتحميل الكتاب
-def load_book(file_path):
-    with open(file_path, 'r', encoding='utf-8') as file:
-        book_text = file.read()
-    return book_text
-
-# دالة لتدريب النموذج على نصوص الكتاب
-def train_model_on_book(book_text):
-    # هنا يمكن إضافة منطق التدريب باستخدام النصوص التي تم تحميلها
-    # على سبيل المثال، استخدام OpenAI API لتدريب النموذج بناءً على النصوص
-    try:
-        response = openai.Completion.create(
-            engine="gpt-3.5-turbo",  # أو النموذج المناسب
-            prompt=book_text,
-            max_tokens=2000
+# إعداد قاعدة البيانات
+def setup_database():
+    conn = sqlite3.connect("smart_templates.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            description TEXT,
+            structure TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-        return response.choices[0].text.strip()
-    except Exception as e:
-        return f"حدث خطأ: {e}"
+    """)
+    conn.commit()
+    conn.close()
 
-# إعداد Telegram bot
-def start(update, context):
-    update.message.reply_text('مرحبا! كيف يمكنني مساعدتك اليوم؟')
+setup_database()
 
-def handle_message(update, context):
-    user_message = update.message.text
-    # إرسال الرسالة إلى OpenAI API أو Alpha AI API
-    response = generate_response(user_message)
-    update.message.reply_text(response)
+# توليد قالب ذكي مع تفرعات متعددة
+def generate_template(title, description, levels=7, branches=7):
+    def recursive_generate(level, max_levels):
+        if level > max_levels:
+            return []
 
-def generate_response(user_message):
-    # مثال لإرسال رسالة إلى OpenAI GPT-4
-    try:
-        response = openai.Completion.create(
-            engine="gpt-4",
-            prompt=user_message,
-            max_tokens=150
-        )
-        return response.choices[0].text.strip()
-    except Exception as e:
-        return f"حدث خطأ: {e}"
+        branches_data = []
+        for i in range(1, branches + 1):
+            branch_title = f"فرع {level}-{i}"
+            branch_description = f"هذا هو التفرع رقم {i} في المستوى {level}."
+            
+            # إنشاء قدرات لكل فرع
+            capabilities = [f"قدرة {i}-{j}" for j in range(1, branches + 1)]
 
-# إضافة الأوامر والمستمعين
-def setup_bot():
-    updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+            branches_data.append({
+                "title": branch_title,
+                "description": branch_description,
+                "capabilities": capabilities,
+                "sub_branches": recursive_generate(level + 1, max_levels)
+            })
+        
+        return branches_data
 
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    template_structure = {
+        "title": title,
+        "description": description,
+        "structure": recursive_generate(1, levels)
+    }
 
-    updater.start_polling()
-    updater.idle()
+    # حفظ القالب في قاعدة البيانات
+    conn = sqlite3.connect("smart_templates.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO templates (title, description, structure) VALUES (?, ?, ?)
+    """, (title, description, json.dumps(template_structure)))
+    conn.commit()
+    conn.close()
 
-# نقطة الدخول لFlask
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    update = request.get_json()
-    # التعامل مع رسالة Telegram من هنا
-    return jsonify({"status": "ok"})
+    return template_structure
 
-if __name__ == "__main__":
-    setup_bot()
-    app.run(debug=True, host='0.0.0.0', port=5000)
+# تصدير القالب إلى Notion
+def export_to_notion(template):
+    notion_page = notion.pages.create(
+        parent={"database_id": "your_notion_database_id"},
+        properties={
+            "Name": {"title": [{"text": {"content": template['title']}}]}
+        },
+        children=[
+            {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {"text": [{"type": "text", "text": {"content": template['title']}}]}
+            },
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {"text": [{"type": "text", "text": {"content": template['description']}}]}
+            }
+        ]
+    )
+
+    def add_structure_to_notion(parent_id, structure, level=1):
+        for branch in structure:
+            branch_block = {
+                "object": "block",
+                "type": "heading_3",
+                "heading_3": {"text": [{"type": "text", "text": {"content": branch['title']}}]}
+            }
+            notion.blocks.children.append(parent_id, branch_block)
+
+            description_block = {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {"text": [{"type": "text", "text": {"content": branch['description']}}]}
+            }
+            notion.blocks.children.append(parent_id, description_block)
+
+            for capability in branch['capabilities']:
+                capability_block = {
+                    "object": "block",
+                    "type": "bulleted_list_item",
+                    "bulleted_list_item": {"text": [{"type": "text", "text": {"content": capability}}]}
+                }
+                notion.blocks.children.append(parent_id, capability_block)
+
+            if branch['sub_branches']:
+                add_structure_to_notion(parent_id, branch['sub_branches'], level + 1)
+
+    add_structure_to_notion(notion_page["id"], template['structure'])
+    return notion_page["url"]
+
+# ربط النظام مع بوت Telegram
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message, "مرحباً بك في نظام إنشاء القوالب الذكية! أرسل /create لإنشاء قالب جديد.")
+
+@bot.message_handler(commands=['create'])
+def create_template(message):
+    bot.reply_to(message, "يرجى إدخال اسم القالب:")
+    bot.register_next_step_handler(message, get_template_description)
+
+def get_template_description(message):
+    title = message.text
+    bot.reply_to(message, "يرجى إدخال وصف القالب:")
+    bot.register_next_step_handler(message, process_template_request, title)
+
+def process_template_request(message, title):
+    description = message.text
+    bot.reply_to(message, "جارٍ إنشاء القالب...")
+    template = generate_template(title, description)
+    notion_url = export_to_notion(template)
+    bot.reply_to(message, f"تم إنشاء القالب بنجاح! يمكنك الوصول إليه عبر الرابط التالي:\n{notion_url}")
+
+bot.polling()
